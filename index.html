@@ -11,7 +11,7 @@
             background-color: #f4f4f9;
         }
 
-        #startButton, #languageButton {
+        #startButton, #languageButton, #sendButton {
             padding: 10px 20px;
             margin: 10px;
             font-size: 16px;
@@ -23,7 +23,7 @@
             transition: background-color 0.3s ease;
         }
 
-        #startButton:hover, #languageButton:hover {
+        #startButton:hover, #languageButton:hover, #sendButton:hover {
             background-color: #0056b3;
         }
 
@@ -70,6 +70,31 @@
             display: none;
             margin: 10px 0;
         }
+
+        .text-input-container {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        #textInput {
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            width: 300px;
+        }
+
+        #errorLog {
+            margin-top: 10px;
+            color: #d9534f;
+            font-size: 14px;
+            text-align: left;
+            max-width: 500px;
+            margin: 0 auto;
+            padding: 5px;
+        }
     </style>
 </head>
 <body>
@@ -85,12 +110,22 @@
         <div id="geminiOutput">Robot command will appear here</div>
     </div>
 
+    <div class="text-input-container">
+        <input type="text" id="textInput" placeholder="Type your command here..." />
+        <button id="sendButton">Send</button>
+    </div>
+    
+    <div id="errorLog"></div>
+
     <script>
         const startButton = document.getElementById('startButton');
         const outputDiv = document.getElementById('output');
         const languageButton = document.getElementById('languageButton');
         const geminiOutputDiv = document.getElementById('geminiOutput');
         const loadingDiv = document.getElementById('loading');
+        const textInput = document.getElementById('textInput');
+        const sendButton = document.getElementById('sendButton');
+        const errorLog = document.getElementById('errorLog');
 
         const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition || window.mozSpeechRecognition || window.msSpeechRecognition)();
         recognition.lang = 'en-US';
@@ -132,11 +167,39 @@
             }
         });
 
+        sendButton.addEventListener('click', () => {
+            const text = textInput.value.trim();
+            if (text) {
+                outputDiv.textContent = text;
+                processWithGemini(text);
+                textInput.value = '';
+            }
+        });
+
+        // Also allow pressing Enter to send text
+        textInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const text = textInput.value.trim();
+                if (text) {
+                    outputDiv.textContent = text;
+                    processWithGemini(text);
+                    textInput.value = '';
+                }
+            }
+        });
+
         // Gemini API integration
         async function processWithGemini(text) {
             loadingDiv.style.display = 'block';
+            errorLog.textContent = ''; // Clear previous errors
             
             try {
+                // System instruction to prepend to the user's text
+                const systemInstruction = "You are a robot\nWhen I say a phrase or word related to going front\nSay 'f'\nIf right r\nLeft l\nStop s\nBack b\nIf you feel if it hints to the phrase return the letter\nAnd if it does not mean anything\nReturn s\nAnd only say these words and don't utter a word other than these letters";
+                
+                // Combine system instruction with user text
+                const combinedText = `${systemInstruction}\n\nUser input: ${text}`;
+                
                 const response = await fetch('https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=AIzaSyB_XP7-HDvVfnEcejybkmwgIgsV5cWhC8g', {
                     method: 'POST',
                     headers: {
@@ -148,32 +211,39 @@
                                 role: 'user',
                                 parts: [
                                     {
-                                        text: text
+                                        text: combinedText
                                     }
                                 ]
                             }
                         ],
-                        systemInstruction: {
-                            parts: [
-                                {
-                                    text: "You are a robot\nWhen I say a phrase or word related to going front\nSay 'f'\nIf right r\nLeft l\nStop s\nBack b\nIf you feel if it hints to the phrase return the letter\nAnd if it does not mean anything\nReturn s\nAnd only say these words and don't utter a word other than these letters"
-                                }
-                            ]
+                        generationConfig: {
+                            temperature: 0.2,
+                            maxOutputTokens: 10
                         }
                     })
                 });
 
                 const data = await response.json();
                 
+                // Log the full response for debugging
+                console.log("Gemini API Response:", data);
+                
                 if (data.candidates && data.candidates[0] && data.candidates[0].content) {
                     const geminiResponse = data.candidates[0].content.parts[0].text;
                     geminiOutputDiv.textContent = geminiResponse;
                 } else {
                     geminiOutputDiv.textContent = "Error: No valid response from Gemini";
+                    // Log detailed error information
+                    if (data.error) {
+                        errorLog.textContent = `API Error: ${data.error.message || JSON.stringify(data.error)}`;
+                    } else {
+                        errorLog.textContent = `Unexpected response format: ${JSON.stringify(data)}`;
+                    }
                 }
             } catch (error) {
                 console.error("Error calling Gemini API:", error);
                 geminiOutputDiv.textContent = "Error processing with Gemini";
+                errorLog.textContent = `Exception: ${error.message}`;
             } finally {
                 loadingDiv.style.display = 'none';
             }
