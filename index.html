@@ -95,6 +95,31 @@
             margin: 0 auto;
             padding: 5px;
         }
+
+        .recording-indicator {
+            display: none;
+            width: 20px;
+            height: 20px;
+            background-color: red;
+            border-radius: 50%;
+            margin: 10px auto;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(0.95);
+                opacity: 0.8;
+            }
+            50% {
+                transform: scale(1.1);
+                opacity: 1;
+            }
+            100% {
+                transform: scale(0.95);
+                opacity: 0.8;
+            }
+        }
     </style>
 </head>
 <body>
@@ -103,6 +128,9 @@
     </header>
     <button id="startButton">Start Voice Input</button>
     <button id="languageButton">Switch to Tamil</button>
+    
+    <!-- Add recording indicator -->
+    <div class="recording-indicator" id="recordingIndicator"></div>
     
     <div class="output-container">
         <div id="output">Your transcribed text will appear here...</div>
@@ -126,6 +154,7 @@
         const textInput = document.getElementById('textInput');
         const sendButton = document.getElementById('sendButton');
         const errorLog = document.getElementById('errorLog');
+        const recordingIndicator = document.getElementById('recordingIndicator');
 
         const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition || window.mozSpeechRecognition || window.msSpeechRecognition)();
         recognition.lang = 'en-US';
@@ -134,8 +163,9 @@
         let isContinuousMode = false;
 
         recognition.onstart = () => {
-            startButton.textContent = 'Listening...';
-            startButton.disabled = true;
+            startButton.textContent = 'Stop Voice Input';
+            startButton.disabled = false;
+            recordingIndicator.style.display = 'block';
         };
 
         recognition.onresult = (event) => {
@@ -144,14 +174,14 @@
         };
 
         recognition.onend = () => {
-            // Only update button if we're stopping the continuous mode
+            // Process the transcript with Gemini when speech recognition ends
+            const text = outputDiv.textContent;
+            
             if (!isContinuousMode) {
                 startButton.textContent = 'Start Voice Input';
-                startButton.disabled = false;
+                recordingIndicator.style.display = 'none';
             }
             
-            // Automatically process the transcript with Gemini when speech recognition ends
-            const text = outputDiv.textContent;
             if (text && text !== 'Your transcribed text will appear here...') {
                 processWithGemini(text).then(() => {
                     // After Gemini processing completes, restart voice input if in continuous mode
@@ -159,7 +189,14 @@
                         // Short delay before restarting to allow for system to stabilize
                         setTimeout(() => {
                             if (isContinuousMode) { // Check again in case it was turned off during processing
-                                recognition.start();
+                                try {
+                                    recognition.start();
+                                } catch (error) {
+                                    console.error("Error restarting recognition:", error);
+                                    isContinuousMode = false;
+                                    startButton.textContent = 'Start Voice Input';
+                                    recordingIndicator.style.display = 'none';
+                                }
                             }
                         }, 1000);
                     }
@@ -168,7 +205,14 @@
                 // If no valid text but still in continuous mode, restart
                 setTimeout(() => {
                     if (isContinuousMode) {
-                        recognition.start();
+                        try {
+                            recognition.start();
+                        } catch (error) {
+                            console.error("Error restarting recognition:", error);
+                            isContinuousMode = false;
+                            startButton.textContent = 'Start Voice Input';
+                            recordingIndicator.style.display = 'none';
+                        }
                     }
                 }, 1000);
             }
@@ -178,31 +222,49 @@
             console.error('Speech recognition error:', event.error);
             // If error occurs, reset button state
             startButton.textContent = 'Start Voice Input';
-            startButton.disabled = false;
+            recordingIndicator.style.display = 'none';
             
             // If in continuous mode, try to restart after error
-            if (isContinuousMode) {
+            if (isContinuousMode && event.error !== 'aborted') {
                 setTimeout(() => {
                     if (isContinuousMode) {
-                        recognition.start();
+                        try {
+                            recognition.start();
+                        } catch (error) {
+                            console.error("Error restarting recognition:", error);
+                            isContinuousMode = false;
+                            startButton.textContent = 'Start Voice Input';
+                            recordingIndicator.style.display = 'none';
+                        }
                     }
                 }, 1000);
+            } else {
+                isContinuousMode = false;
             }
         };
 
         startButton.addEventListener('click', () => {
-            if (startButton.textContent === 'Start Voice Input') {
+            if (!isContinuousMode) {
                 // Start continuous mode
                 isContinuousMode = true;
-                startButton.textContent = 'Stop Voice Input';
-                recognition.start();
-                // Clear previous Gemini output when starting new voice input
-                geminiOutputDiv.textContent = "Robot command will appear here";
+                try {
+                    recognition.start();
+                    // Clear previous Gemini output when starting new voice input
+                    geminiOutputDiv.textContent = "Robot command will appear here";
+                } catch (error) {
+                    console.error("Error starting recognition:", error);
+                    isContinuousMode = false;
+                }
             } else {
                 // Stop continuous mode
                 isContinuousMode = false;
+                try {
+                    recognition.abort();
+                } catch (error) {
+                    console.error("Error stopping recognition:", error);
+                }
                 startButton.textContent = 'Start Voice Input';
-                recognition.abort();
+                recordingIndicator.style.display = 'none';
             }
         });
 
