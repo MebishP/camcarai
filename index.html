@@ -129,6 +129,9 @@
 
         const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition || window.mozSpeechRecognition || window.msSpeechRecognition)();
         recognition.lang = 'en-US';
+        
+        // Flag to track continuous mode
+        let isContinuousMode = false;
 
         recognition.onstart = () => {
             startButton.textContent = 'Listening...';
@@ -141,20 +144,66 @@
         };
 
         recognition.onend = () => {
-            startButton.textContent = 'Start Voice Input';
-            startButton.disabled = false;
+            // Only update button if we're stopping the continuous mode
+            if (!isContinuousMode) {
+                startButton.textContent = 'Start Voice Input';
+                startButton.disabled = false;
+            }
             
             // Automatically process the transcript with Gemini when speech recognition ends
             const text = outputDiv.textContent;
             if (text && text !== 'Your transcribed text will appear here...') {
-                processWithGemini(text);
+                processWithGemini(text).then(() => {
+                    // After Gemini processing completes, restart voice input if in continuous mode
+                    if (isContinuousMode) {
+                        // Short delay before restarting to allow for system to stabilize
+                        setTimeout(() => {
+                            if (isContinuousMode) { // Check again in case it was turned off during processing
+                                recognition.start();
+                            }
+                        }, 1000);
+                    }
+                });
+            } else if (isContinuousMode) {
+                // If no valid text but still in continuous mode, restart
+                setTimeout(() => {
+                    if (isContinuousMode) {
+                        recognition.start();
+                    }
+                }, 1000);
+            }
+        };
+
+        recognition.onerror = (event) => {
+            console.error('Speech recognition error:', event.error);
+            // If error occurs, reset button state
+            startButton.textContent = 'Start Voice Input';
+            startButton.disabled = false;
+            
+            // If in continuous mode, try to restart after error
+            if (isContinuousMode) {
+                setTimeout(() => {
+                    if (isContinuousMode) {
+                        recognition.start();
+                    }
+                }, 1000);
             }
         };
 
         startButton.addEventListener('click', () => {
-            recognition.start();
-            // Clear previous Gemini output when starting new voice input
-            geminiOutputDiv.textContent = "Robot command will appear here";
+            if (startButton.textContent === 'Start Voice Input') {
+                // Start continuous mode
+                isContinuousMode = true;
+                startButton.textContent = 'Stop Voice Input';
+                recognition.start();
+                // Clear previous Gemini output when starting new voice input
+                geminiOutputDiv.textContent = "Robot command will appear here";
+            } else {
+                // Stop continuous mode
+                isContinuousMode = false;
+                startButton.textContent = 'Start Voice Input';
+                recognition.abort();
+            }
         });
 
         languageButton.addEventListener('click', () => {
